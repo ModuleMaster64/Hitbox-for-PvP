@@ -1,27 +1,26 @@
 (async function () {
-    const gameSrc = [...document.scripts].find(s => s.src.includes("/assets/index"))?.src;
-    if (!gameSrc) return;
+    const gameScript = [...document.scripts].find(s => s.src.includes("/assets/index"))?.src;
+    if (!gameScript) return;
 
-    const response = await fetch(gameSrc);
+    const response = await fetch(gameScript);
     const gameCode = await response.text();
 
     const script = document.createElement("script");
     script.type = "module";
     script.textContent = `
-        ${gameCode};
+        ${gameCode}
 
-        // === Transparent Hitboxes Injected Code ===
-        (function () {
+        // === Transparent Hitboxes Injection ===
+        (() => {
+            const maxBoxes = 20;
             let hitboxesEnabled = false;
             let Mesh, EntityPlayer, Vector3, boxGeometry, scene;
-            let boxMeshes = [];
-            const maxBoxes = 20;
+            const boxMeshes = [];
 
             const hookInterval = setInterval(() => {
                 try {
                     for (const key in window) {
                         const val = window[key];
-
                         if (val?.prototype?.set && val?.prototype?.getX && !Vector3) Vector3 = val;
                         if (val?.prototype?.material && val?.prototype?.geometry && !Mesh) Mesh = val;
                         if (val?.prototype?.isSpectator !== undefined && val?.prototype?.setGamemode && !EntityPlayer) EntityPlayer = val;
@@ -29,22 +28,24 @@
                     }
 
                     const game = window.game;
-                    if (Mesh && Vector3 && EntityPlayer && game && boxGeometry) {
+                    if (Mesh && Vector3 && EntityPlayer && boxGeometry && game?.gameScene?.ambientMeshes) {
                         scene = game.gameScene.ambientMeshes;
-                        if (!scene) return;
                         clearInterval(hookInterval);
-                        setup();
+                        initializeHitboxes();
                         console.log('[Hitbox] Ready - press L to toggle');
                     }
-                } catch (e) {}
+                } catch {}
             }, 500);
 
-            function setup() {
+            function initializeHitboxes() {
                 for (let i = 0; i < maxBoxes; i++) {
                     const mesh = new Mesh(new boxGeometry(1, 2, 1));
-                    mesh.material.depthTest = false;
-                    mesh.material.transparent = true;
-                    mesh.material.opacity = 0.15;
+                    Object.assign(mesh.material, {
+                        depthTest: false,
+                        transparent: true,
+                        opacity: 0.15,
+                        color: { setRGB: (r, g, b) => mesh.material.color.setRGB(r, g, b) }
+                    });
                     mesh.material.color.setRGB(1, 1, 1);
                     mesh.renderOrder = 10;
                     mesh.visible = false;
@@ -56,20 +57,19 @@
                     if (e.key.toLowerCase() === "l") {
                         hitboxesEnabled = !hitboxesEnabled;
                         console.log("[Hitbox] Toggled:", hitboxesEnabled);
-                        if (!hitboxesEnabled) boxMeshes.forEach(b => b.visible = false);
+                        if (!hitboxesEnabled) boxMeshes.forEach(mesh => mesh.visible = false);
                     }
                 });
 
-                requestAnimationFrame(function draw() {
+                const draw = () => {
                     requestAnimationFrame(draw);
-                    if (!hitboxesEnabled || !game?.world?.entitiesDump) return;
+                    if (!hitboxesEnabled || !window.game?.world?.entitiesDump) return;
 
-                    const entities = [...game.world.entitiesDump.values()];
+                    const entities = [...window.game.world.entitiesDump.values()];
                     let index = 0;
 
                     for (const entity of entities) {
-                        if (!(entity instanceof EntityPlayer)) continue;
-                        if (entity.id === game.player?.id) continue;
+                        if (!(entity instanceof EntityPlayer) || entity.id === window.game.player?.id) continue;
 
                         const mesh = boxMeshes[index];
                         if (!mesh || !entity.mesh?.position) continue;
@@ -80,8 +80,12 @@
                         if (index >= maxBoxes) break;
                     }
 
-                    for (; index < maxBoxes; index++) boxMeshes[index].visible = false;
-                });
+                    while (index < maxBoxes) {
+                        boxMeshes[index++].visible = false;
+                    }
+                };
+
+                requestAnimationFrame(draw);
             }
         })();
     `;
